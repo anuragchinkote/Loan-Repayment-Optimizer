@@ -3,10 +3,16 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+.pytest_cache/
+*.egg-info/
 
 # Node
 node_modules/
 dist/
+frontend/dist/
+
+# Scratch / audit temp
+.audit-tmp/
 
 # OS
 .DS_Store
@@ -14,3 +20,5 @@ dist/
 # IDE
 .vscode/
 .idea/
+PRODUCT.md
+design_references/
