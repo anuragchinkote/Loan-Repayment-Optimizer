@@ -109,6 +109,26 @@ class ComparisonResponse(BaseModel):
     payment_difference: str
 
 
+class EmiRequest(BaseModel):
+    """Input to the standalone EMI endpoint (guidance before a plan exists)."""
+
+    model_config = {"extra": "forbid"}
+
+    principal: Decimal = Field(gt=0, description="Loan amount")
+    annual_interest_rate: Decimal = Field(
+        ge=0, description="Annual interest rate in percent"
+    )
+    number_of_months: int = Field(
+        gt=0, description="Loan term in months"
+    )
+
+
+class EmiResponse(BaseModel):
+    """The standard EMI that would clear the loan in the stated term."""
+
+    emi: str
+
+
 class LoanPlanResponse(BaseModel):
     """Full loan plan response."""
 

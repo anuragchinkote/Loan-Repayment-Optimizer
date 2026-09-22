@@ -69,3 +69,13 @@ export interface LoanPlanResponse {
   comparison: ComparisonData;
   standard_monthly_instalment?: string | null;
 }
+
+export interface EmiPayload {
+  principal: string;
+  annual_interest_rate: string;
+  number_of_months: number;
+}
+
+export interface EmiResponse {
+  emi: string;
+}

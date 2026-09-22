@@ -1,5 +1,10 @@
 import { API_BASE_URL } from "../config";
-import type { LoanPlanRequest, LoanPlanResponse } from "../types/loan";
+import type {
+  EmiPayload,
+  EmiResponse,
+  LoanPlanRequest,
+  LoanPlanResponse,
+} from "../types/loan";
 
 export type ApiErrorKind = "validation" | "server" | "network";
 export type ApiErrorInfo = { kind: ApiErrorKind; message: string; status?: number };
@@ -106,3 +111,49 @@ export async function fetchLoanPlan(
 }
 
 export { moneyIdempotent };
+
+// ---------------------------------------------------------------------------
+// Standalone EMI guidance
+// ---------------------------------------------------------------------------
+
+export async function fetchEmi(payload: EmiPayload, signal?: AbortSignal): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/v1/loan/emi`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw err;
+    }
+    throw new ApiError(
+      "network",
+      "Could not reach the LoanPilot server. Make sure the backend is running and try again.",
+    );
+  }
+
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+
+  if (res.ok) {
+    const emi = (body as EmiResponse | null)?.emi;
+    if (typeof emi === "string" && emi.length > 0) return emi;
+    throw new ApiError("server", "The server returned an unexpected response.");
+  }
+
+  const raw = extractDetail(body);
+  if (res.status === 422 || res.status === 400) {
+    throw new ApiError("validation", friendlyValidationMessage(raw), res.status);
+  }
+  throw new ApiError("server", "The server hit an error. Please try again shortly.", res.status);
+}

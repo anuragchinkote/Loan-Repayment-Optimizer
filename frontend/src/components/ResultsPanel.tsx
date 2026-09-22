@@ -100,7 +100,7 @@ export function CurrentPlanPanel({ result, tenureMonths, stale }: CurrentPlanPan
   }
 
   return (
-    <div className="border border-outline-variant bg-surface-container-lowest p-6 md:p-8" id="current-plan-card">
+    <div className="border border-outline-variant bg-surface-container-lowest p-6 scroll-mt-24 md:p-8" id="current-plan-card">
       <div className="mb-5 flex flex-col justify-between gap-2 border-b border-outline-variant pb-4 sm:flex-row sm:items-baseline">
         <div>
           <h2 className="font-headline-lg text-headline-lg tracking-tight text-primary">
@@ -231,7 +231,7 @@ export function NewPlanPanel(props: NewPlanPanelProps) {
   const { result, status, error, badgeText, badgeFlash, strategyActive } = props;
 
   return (
-    <div className="border border-outline-variant bg-surface-container-lowest p-6 md:p-8" id="plan-card">
+    <div className="border border-outline-variant bg-surface-container-lowest p-6 scroll-mt-24 md:p-8" id="plan-card">
       <div className="mb-6 flex flex-col justify-between gap-2 border-b border-outline-variant pb-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="font-headline-lg text-headline-lg tracking-tight text-primary">

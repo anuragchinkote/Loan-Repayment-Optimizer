@@ -107,10 +107,10 @@ function TabsTrigger({
         }
       }}
       className={cn(
-        "py-2.5 px-3 text-center font-label-md text-label-md uppercase tracking-wider transition-colors",
+        "cursor-pointer border py-2.5 px-3 text-center font-label-md text-label-md uppercase tracking-wider transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-low active:bg-surface-container-low",
         selected
-          ? "bg-primary-container text-on-primary"
-          : "bg-transparent text-on-surface-variant hover:text-primary",
+          ? "border-primary bg-primary-container text-on-primary hover:bg-primary"
+          : "border-outline bg-surface-container-lowest text-on-surface-variant hover:border-primary hover:bg-surface-container hover:text-primary",
         className,
       )}
       {...props}

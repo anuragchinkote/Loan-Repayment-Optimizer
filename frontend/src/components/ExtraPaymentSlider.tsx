@@ -1,4 +1,5 @@
 import { formatINR } from "../utils/format";
+import { cn } from "../lib/utils";
 import { Slider } from "./ui/slider";
 
 interface ExtraPaymentSliderProps {
@@ -6,19 +7,45 @@ interface ExtraPaymentSliderProps {
   baseInstalment: string;
   onChange: (value: number) => void;
   disabled?: boolean;
+  guide?: boolean;
 }
 
-const MAX_EXTRA = 25000;
+const MIN_EXTRA = 25000;
+
+// Dynamic ceiling so big loans get a meaningful slider scale instead of a fixed ₹25k.
+const defaultMaxFor = (baseNum: number, value: number) => {
+  const scale = Math.max(MIN_EXTRA, Math.ceil(Math.max(baseNum, value) / 25000) * 25000);
+  return scale;
+};
+
+const stepFor = (max: number) => (max >= 100000 ? 2500 : max >= 50000 ? 1000 : 500);
 
 const parseAmount = (value: string): number =>
   Number(value.replace(/[₹,\s]/g, ""));
 
-export function ExtraPaymentSlider({ value, baseInstalment, onChange, disabled }: ExtraPaymentSliderProps) {
+export function ExtraPaymentSlider({
+  value,
+  baseInstalment,
+  onChange,
+  disabled,
+  guide,
+}: ExtraPaymentSliderProps) {
   const baseNum = parseAmount(baseInstalment);
-  const totalNum = Number.isFinite(baseNum) ? baseNum + value : value;
+  const sliderMax = defaultMaxFor(baseNum, value);
+  const sliderStep = stepFor(sliderMax);
+  const stepCount = Math.max(4, Math.round(sliderMax / sliderStep));
+  const midLabel = Math.round((sliderStep * stepCount) / 2 / 5000) * 5000;
+  const safeValue = Math.min(value, sliderMax);
+  const totalNum = Number.isFinite(baseNum) ? baseNum + safeValue : safeValue;
 
   return (
-    <div className="relative mb-5 border-2 border-primary-container bg-surface-container-low p-5">
+    <div
+      id="extra-slider"
+      className={cn(
+        "relative scroll-mt-24 mb-5 border-2 border-primary-container bg-surface-container-low p-5",
+        guide && "lp-guide-slider",
+      )}
+    >
       <div className="mb-3 flex items-start justify-between gap-4">
         <div>
           <span className="font-label-sm text-label-sm font-bold uppercase tracking-widest text-primary">
@@ -46,8 +73,8 @@ export function ExtraPaymentSlider({ value, baseInstalment, onChange, disabled }
         <Slider
           id="extra-slider"
           min={0}
-          max={MAX_EXTRA}
-          step={500}
+          max={sliderMax}
+          step={sliderStep}
           value={value}
           disabled={disabled}
           onValueChange={onChange}
@@ -55,9 +82,17 @@ export function ExtraPaymentSlider({ value, baseInstalment, onChange, disabled }
         />
         <div className="mt-2 flex justify-between font-mono font-label-sm text-label-sm text-on-surface-variant">
           <span>₹0 (None)</span>
-          <span>₹10,000</span>
-          <span>₹25,000 / mo</span>
+          <span>{formatINR(String(midLabel), 0)}</span>
+          <span>{formatINR(String(sliderMax), 0)} / mo</span>
         </div>
+        {guide && (
+          <p
+            role="status"
+            className="mt-2 font-body-sm text-body-sm font-semibold text-primary"
+          >
+            Try dragging the slider dot to pick an extra monthly amount.
+          </p>
+        )}
       </div>
 
       <div className="mb-4 grid grid-cols-3 gap-2 border border-outline-variant/60 bg-surface-container-lowest p-3 font-body-sm text-body-sm">

@@ -67,6 +67,21 @@ function installFetchMock() {
   return fetchMock;
 }
 
+function installFailingFetchMock() {
+  const fetchMock = vi.fn(
+    async () =>
+      ({ ok: false, status: 500, json: async () => ({ detail: "boom" }) }) as Response,
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function stubScrollIntoView() {
+  const spy = vi.fn();
+  (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = spy;
+  return spy;
+}
+
 const setInstalment = (value: string) =>
   fireEvent.change(screen.getByLabelText("Current required monthly instalment"), {
     target: { value },
@@ -267,5 +282,207 @@ describe("Calculator lump sums", () => {
     ) as LoanPlanRequest;
     expect(body.strategy?.lump_sum_events).toEqual([{ month: 12, amount: "100000" }]);
     expect(screen.getByText(/scheduled at Month 12/i)).toBeInTheDocument();
+  });
+});
+
+describe("EMI guidance and auto-scroll", () => {
+  it("shows the calculated EMI beside the instalment field after the baseline calculates", async () => {
+    installFetchMock();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+
+    expect(screen.getByText(/^EMI: ₹6,607\.54$/)).toBeInTheDocument();
+  });
+
+  it("shows a highlighted EMI hint when Calculate is pressed without an instalment", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/loan/emi")) {
+        return { ok: true, status: 200, json: async () => ({ emi: "6607.54" }) } as Response;
+      }
+      const body = JSON.parse(String((init as RequestInit).body)) as LoanPlanRequest;
+      const requested =
+        body.strategy !== null &&
+        body.strategy !== undefined &&
+        (Number(body.strategy.extra_monthly_payment) > 0 ||
+          (body.strategy.lump_sum_events?.length ?? 0) > 0 ||
+          body.strategy.target_months != null);
+      return { ok: true, status: 200, json: async () => makeResult(requested ? "extra" : undefined) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Calculator />);
+
+    fireEvent.change(screen.getByLabelText("Outstanding loan balance"), {
+      target: { value: "500000" },
+    });
+    fireEvent.change(screen.getByLabelText("Annual interest rate"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("Tenure"), {
+      target: { value: "120" },
+    });
+    clickCalculate();
+
+    expect(await screen.findByText("Enter your current monthly instalment.")).toBeInTheDocument();
+    expect(await screen.findByText(/^EMI: ₹6,607\.54$/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/loan/emi"))).toBe(true);
+  });
+
+  it("keeps the button and guides to the slider when Calculate Savings is pressed with no extra configured", async () => {
+    const fetchMock = installFetchMock();
+    const scrollSpy = stubScrollIntoView();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+    scrollSpy.mockClear();
+
+    fireEvent.click(screen.getByRole("tab", { name: /extra monthly/i }));
+    clickCalculateSavings();
+
+    expect(
+      await screen.findByText(/Try dragging the slider dot to pick an extra monthly amount/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Calculate Savings" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect((scrollSpy.mock.instances[0] as HTMLElement).id).toBe("extra-slider");
+  });
+
+  it("reveals the comparison normally once a real extra amount is set", async () => {
+    const fetchMock = installFetchMock();
+    render(<Calculator />);
+
+    await revealPlan();
+
+    expect(screen.getByText("Potential interest saved")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Try dragging the slider dot to pick an extra monthly amount/),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an instalment below the calculated EMI without calling the server", async () => {
+    const fetchMock = installFetchMock();
+    render(<Calculator />);
+
+    await revealPlan();
+
+    setInstalment("5000");
+    expect(
+      await screen.findByText(/must be at least the EMI of ₹6,607\.54/),
+    ).toBeInTheDocument();
+
+    clickCalculate();
+    await screen.findByText(/Check the highlighted fields and try again/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts an instalment above the calculated EMI", async () => {
+    const fetchMock = installFetchMock();
+    render(<Calculator />);
+
+    await revealPlan();
+
+    setInstalment("6608");
+    expect(screen.queryByText(/must be at least the EMI/)).not.toBeInTheDocument();
+
+    clickCalculate();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[2][1] as RequestInit).body),
+    ) as LoanPlanRequest;
+    expect(body.current_monthly_instalment).toBe("6608");
+  });
+
+  it("accepts an instalment equal to the calculated EMI", async () => {
+    const wholeEmiResult = { ...makeResult(), standard_monthly_instalment: "6607" };
+    const fetchMock = vi.fn(
+      async () => ({ ok: true, status: 200, json: async () => wholeEmiResult }) as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+    expect(screen.getByText(/^EMI: ₹6,607\.00$/)).toBeInTheDocument();
+
+    setInstalment("6607");
+    expect(screen.queryByText(/must be at least the EMI/)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("scrolls to the current plan after the first successful baseline calculation", async () => {
+    const scrollSpy = stubScrollIntoView();
+    installFetchMock();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start" }),
+    );
+  });
+
+  it("does not scroll when the first calculation fails", async () => {
+    const scrollSpy = stubScrollIntoView();
+    installFailingFetchMock();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("We could not calculate your loan");
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it("scrolls to the new plan after Calculate Savings succeeds", async () => {
+    const scrollSpy = stubScrollIntoView();
+    installFetchMock();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+    scrollSpy.mockClear();
+
+    fireEvent.click(screen.getByRole("tab", { name: /extra monthly/i }));
+    fireEvent.change(screen.getByLabelText("Extra monthly payment"), {
+      target: { value: "2000" },
+    });
+    clickCalculateSavings();
+    await screen.findByText("Potential interest saved");
+
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not scroll when Calculate Savings fails", async () => {
+    const fetchMock = installFetchMock();
+    const scrollSpy = stubScrollIntoView();
+    render(<Calculator />);
+
+    fillLoanDetails();
+    clickCalculate();
+    await screen.findByText("Your Current Plan");
+    scrollSpy.mockClear();
+
+    fetchMock.mockImplementation(
+      async () => ({ ok: false, status: 500, json: async () => ({ detail: "boom" }) }) as Response,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /extra monthly/i }));
+    fireEvent.change(screen.getByLabelText("Extra monthly payment"), {
+      target: { value: "2000" },
+    });
+    clickCalculateSavings();
+    await screen.findByText(/Something went wrong/);
+
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 });

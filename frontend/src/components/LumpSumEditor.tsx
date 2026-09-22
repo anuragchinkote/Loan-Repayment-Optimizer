@@ -11,6 +11,7 @@ interface LumpSumEditorProps {
   maxMonth: number;
   onUpsert: (lump: LumpSumDraft) => void;
   onRemove: (id: string) => void;
+  guide?: boolean;
 }
 
 type EditingState = { id: string; month: string; amount: string } | null;
@@ -20,7 +21,7 @@ const newId = (): string =>
     ? crypto.randomUUID()
     : `lump-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-export function LumpSumEditor({ lumps, maxMonth, onUpsert, onRemove }: LumpSumEditorProps) {
+export function LumpSumEditor({ lumps, maxMonth, onUpsert, onRemove, guide }: LumpSumEditorProps) {
   const [editing, setEditing] = useState<EditingState>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -142,7 +143,7 @@ export function LumpSumEditor({ lumps, maxMonth, onUpsert, onRemove }: LumpSumEd
         <Button
           variant="outline"
           size="sm"
-          className="flex shrink-0 items-center gap-1"
+          className={cn("flex shrink-0 items-center gap-1", guide && "guide-pulse")}
           onClick={startAdd}
         >
           <span className="material-symbols-outlined text-sm">add</span> Add lump sum

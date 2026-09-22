@@ -33,6 +33,65 @@ def test_health_returns_200():
 
 
 # ---------------------------------------------------------------------------
+# Standalone EMI guidance
+# ---------------------------------------------------------------------------
+
+
+def test_emi_endpoint_returns_standard_instalment():
+    response = client.post(
+        "/api/v1/loan/emi",
+        json={
+            "principal": "500000",
+            "annual_interest_rate": "10",
+            "number_of_months": 120,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"emi": "6607.54"}
+
+
+def test_emi_endpoint_matches_plan_standard_instalment():
+    emi = client.post(
+        "/api/v1/loan/emi",
+        json={
+            "principal": "500000",
+            "annual_interest_rate": "10",
+            "number_of_months": 120,
+        },
+    )
+    plan = client.post(
+        "/api/v1/loan/plan",
+        json=_payload(current_monthly_instalment="6607.54"),
+    )
+    assert emi.status_code == 200
+    assert plan.status_code == 200
+    assert emi.json()["emi"] == plan.json()["standard_monthly_instalment"]
+
+
+def test_emi_endpoint_rejects_invalid_input():
+    invalid = client.post(
+        "/api/v1/loan/emi",
+        json={
+            "principal": "0",
+            "annual_interest_rate": "10",
+            "number_of_months": 120,
+        },
+    )
+    assert invalid.status_code == 422
+
+    unknown = client.post(
+        "/api/v1/loan/emi",
+        json={
+            "principal": "500000",
+            "annual_interest_rate": "10",
+            "number_of_months": 120,
+            "extra": "x",
+        },
+    )
+    assert unknown.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Basic plan
 # ---------------------------------------------------------------------------
 

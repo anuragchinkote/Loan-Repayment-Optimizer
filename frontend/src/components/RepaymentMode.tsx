@@ -6,9 +6,10 @@ type SelectedMode = RepaymentMode | null;
 interface RepaymentModeProps {
   mode: SelectedMode;
   onModeChange: (mode: RepaymentMode) => void;
+  guide?: boolean;
 }
 
-export function RepaymentMode({ mode, onModeChange }: RepaymentModeProps) {
+export function RepaymentMode({ mode, onModeChange, guide }: RepaymentModeProps) {
   return (
     <div className="border-b border-outline-variant pb-8 mb-8">
       <h2 className="font-headline-md text-headline-md mb-2 tracking-tight text-primary">
@@ -22,8 +23,8 @@ export function RepaymentMode({ mode, onModeChange }: RepaymentModeProps) {
         value={mode ?? ""}
         onValueChange={(v) => onModeChange(v as RepaymentMode)}
       >
-        <TabsList className="mb-6 grid grid-cols-2 border border-outline-variant bg-surface-container-low p-1">
-          <TabsTrigger value="extra">Extra monthly + lump sums</TabsTrigger>
+        <TabsList className="mb-6 grid grid-cols-2 gap-1 border border-outline-variant bg-surface-container-low p-1">
+          <TabsTrigger value="extra" className={guide ? "guide-pulse" : undefined}>Extra monthly + lump sums</TabsTrigger>
           <TabsTrigger value="target">Target payoff term</TabsTrigger>
         </TabsList>
       </Tabs>

@@ -8,9 +8,10 @@ import type {
   LumpSumDraft,
   RepaymentMode as RepaymentModeOption,
 } from "../types";
-import { ApiError, fetchLoanPlan, type ApiErrorInfo } from "../services/api";
-import { formatINR } from "../utils/format";
+import { ApiError, fetchEmi, fetchLoanPlan, type ApiErrorInfo } from "../services/api";
+import { formatINR, formatINRFixed } from "../utils/format";
 import { Button } from "../components/ui/button";
+import { cn } from "../lib/utils";
 import { LoanForm } from "../components/LoanForm";
 import { RepaymentMode } from "../components/RepaymentMode";
 import { ExtraPaymentSlider } from "../components/ExtraPaymentSlider";
@@ -37,12 +38,19 @@ function inputSignature(inputs: LoanInputs): string {
   return JSON.stringify([inputs.balance, inputs.rate, inputs.tenure, inputs.instalment]);
 }
 
+// The standard EMI depends only on balance, rate, and tenure — never on the
+// instalment the borrower entered. Staleness of the EMI hint must therefore be
+// tracked separately from the full-input signature.
+function emiInputSignature(inputs: LoanInputs): string {
+  return JSON.stringify([inputs.balance, inputs.rate, inputs.tenure]);
+}
+
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
 export default function Calculator() {
   usePageMeta(
-    "LoanPilot — Loan Payoff Planner",
+    "LoanPilot - Loan Payoff Planner",
     "See what paying extra toward your loan could change: estimated interest saved, time saved, and a full repayment schedule.",
   );
 
@@ -54,18 +62,49 @@ export default function Calculator() {
 
   const [result, setResult] = useState<LoanPlanResponse | null>(null);
   const [planSignature, setPlanSignature] = useState<string | null>(null);
+  const [planEmiSignature, setPlanEmiSignature] = useState<string | null>(null);
   const [strategyActive, setStrategyActive] = useState(false);
   const [strategyRevealed, setStrategyRevealed] = useState(false);
   const [status, setStatus] = useState<PlanStatus>("idle");
   const [error, setError] = useState<ApiErrorInfo | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors | null>(null);
   const [badgeFlash, setBadgeFlash] = useState(false);
+  const [emiHint, setEmiHint] = useState<string | null>(null);
+  const [emiHintSignature, setEmiHintSignature] = useState<string | null>(null);
+  const [pullSlider, setPullSlider] = useState(false);
 
   const months = computeMonths(inputs);
 
-  const latest = useRef({ inputs, mode, extra, lumps, targetMonths, months });
+  // The backend-computed EMI is reused as guidance and as the minimum valid
+  // instalment. It is only shown when it still matches the current balance,
+  // rate, and tenure, so it never feels stale or misleading.
+  const effectiveEmi = (() => {
+    const raw = result?.standard_monthly_instalment;
+    if (!raw || planEmiSignature === null) return null;
+    if (planEmiSignature !== emiInputSignature(inputs)) return null;
+    return raw;
+  })();
+
+  // Falls back to the standalone EMI hint (fetched before any plan exists so
+  // the instalment field has guidance from the first Calculate press).
+  const guideEmi = (() => {
+    if (effectiveEmi) return effectiveEmi;
+    if (emiHint === null || emiHintSignature === null) return null;
+    if (emiHintSignature !== emiInputSignature(inputs)) return null;
+    return emiHint;
+  })();
+
+  const latest = useRef({
+    inputs,
+    mode,
+    extra,
+    lumps,
+    targetMonths,
+    months,
+    emi: null as string | null,
+  });
   useEffect(() => {
-    latest.current = { inputs, mode, extra, lumps, targetMonths, months };
+    latest.current = { inputs, mode, extra, lumps, targetMonths, months, emi: effectiveEmi };
   });
 
   const seqRef = useRef(0);
@@ -73,6 +112,32 @@ export default function Calculator() {
   const abortRef = useRef<AbortController | null>(null);
   const hasResultRef = useRef(false);
   const calculateHandlerRef = useRef<() => void>(() => {});
+  const scrollTargetRef = useRef<string | null>(null);
+  const [scrollTick, setScrollTick] = useState(0);
+
+  // Scroll requests are one-shot: the tick bumps when a target is queued (from
+  // an event handler, never from within an effect), and the effect below
+  // consumes it once.
+  const requestScroll = (target: string) => {
+    scrollTargetRef.current = target;
+    setScrollTick((tick) => tick + 1);
+  };
+
+  useEffect(() => {
+    if (scrollTick === 0) return;
+    const target = scrollTargetRef.current;
+    scrollTargetRef.current = null;
+    if (!target) return;
+    const el = document.getElementById(target);
+    if (!el) return;
+    const reducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [scrollTick]);
 
   function buildPayload(
     includeStrategy: boolean,
@@ -112,6 +177,14 @@ export default function Calculator() {
       errs.instalment = "Enter your current monthly instalment.";
     } else if (!Number.isFinite(instalmentNum) || instalmentNum <= 0) {
       errs.instalment = "Instalment must be greater than ₹0.";
+    }
+
+    const emiRaw = cur.emi;
+    if (emiRaw != null && !errs.instalment) {
+      const emiNum = Number(emiRaw);
+      if (Number.isFinite(emiNum) && instalmentNum < emiNum) {
+        errs.instalment = `Instalment must be at least the EMI of ${formatINRFixed(emiRaw)} for this loan.`;
+      }
     }
 
     if (Object.keys(errs).length > 0) {
@@ -174,7 +247,33 @@ export default function Calculator() {
     return cur.extra > 0 || cur.lumps.length > 0;
   }
 
-  async function runPlan(force: boolean) {
+  // Best-effort guidance fetch: surfaces the standard EMI before any plan
+  // exists (e.g. Calculate pressed with the instalment field empty). Never
+  // surfaces errors — it is a hint, not a blocker.
+  const requestEmiHint = () => {
+    const cur = latest.current;
+    const sig = emiInputSignature(cur.inputs);
+    const balanceNum = toNum(cur.inputs.balance);
+    const rateNum = Number(cur.inputs.rate.trim());
+    const curMonths = computeMonths(cur.inputs);
+    if (!Number.isFinite(balanceNum) || balanceNum <= 0) return;
+    if (!Number.isFinite(rateNum) || rateNum < 0) return;
+    if (curMonths < 1) return;
+    void fetchEmi({
+      principal: cur.inputs.balance.replace(/[₹,\s]/g, ""),
+      annual_interest_rate: cur.inputs.rate.trim(),
+      number_of_months: curMonths,
+    })
+      .then((emi) => {
+        setEmiHint(emi);
+        setEmiHintSignature(sig);
+      })
+      .catch(() => {
+        // Ignore: guidance is hidden when unavailable.
+      });
+  };
+
+  async function runPlan(force: boolean, scrollTarget?: string) {
     abortRef.current?.abort();
     const seq = ++seqRef.current;
     const ctrl = new AbortController();
@@ -186,6 +285,11 @@ export default function Calculator() {
         setFieldErrors(built.errors ?? null);
         setError(built.message ? { kind: "validation", message: built.message } : null);
         setStatus("idle");
+        const cur = latest.current;
+        const instalmentClean = cur.inputs.instalment.replace(/[₹,\s]/g, "");
+        if (!instalmentClean && !cur.emi) {
+          requestEmiHint();
+        }
       }
       return;
     }
@@ -197,13 +301,16 @@ export default function Calculator() {
     try {
       const res = await fetchLoanPlan(built.payload!, ctrl.signal);
       if (seq !== seqRef.current) return;
+      const firstBaseline = force && !hasResultRef.current;
       hasResultRef.current = true;
       setResult(res);
       setPlanSignature(inputSignature(latest.current.inputs));
+      setPlanEmiSignature(emiInputSignature(latest.current.inputs));
       setError(null);
       setStatus("idle");
       if (force) {
         // Recalculate refreshes the whole planner: no inherited strategy values.
+        if (firstBaseline) requestScroll("current-plan-card");
         setMode(null);
         setExtra(0);
         setLumps([]);
@@ -214,6 +321,7 @@ export default function Calculator() {
         window.setTimeout(() => setBadgeFlash(false), 500);
       } else {
         setStrategyActive(hasConfiguredStrategy(built.payload));
+        if (scrollTarget) requestScroll(scrollTarget);
       }
     } catch (err) {
       if (seq !== seqRef.current) return;
@@ -224,10 +332,10 @@ export default function Calculator() {
     }
   }
 
-  const schedulePlan = (opts: { force?: boolean; debounce?: number } = {}) => {
+  const schedulePlan = (opts: { force?: boolean; debounce?: number; scroll?: string } = {}) => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(
-      () => void runPlan(opts.force ?? false),
+      () => void runPlan(opts.force ?? false, opts.scroll),
       opts.debounce ?? 0,
     );
   };
@@ -270,6 +378,7 @@ export default function Calculator() {
 
   const handleExtraChange = (value: number) => {
     setExtra(value);
+    setPullSlider(false);
     if (strategyRevealed) schedulePlan({ debounce: 300 });
   };
 
@@ -299,8 +408,19 @@ export default function Calculator() {
   const onCalculate = () => schedulePlan({ force: true, debounce: 0 });
 
   const calculateSavings = () => {
+    const cur = latest.current;
+    const emptyExtra =
+      cur.mode === "extra" && cur.extra === 0 && cur.lumps.length === 0;
+    if (emptyExtra) {
+      // Guide instead of revealing an empty comparison: keep the button in
+      // place, nudge the slider into view, and animate its thumb so the user
+      // knows where to act next.
+      setPullSlider(true);
+      requestScroll("extra-slider");
+      return;
+    }
     if (!strategyRevealed) setStrategyRevealed(true);
-    schedulePlan({ debounce: 0 });
+    schedulePlan({ debounce: 0, scroll: "plan-card" });
   };
 
   const stale =
@@ -348,13 +468,13 @@ export default function Calculator() {
 
       <div id="workspace" className="mb-16 grid grid-cols-1 items-start gap-8 scroll-mt-24 lg:grid-cols-12">
         <section className="border border-outline-variant bg-surface-container-lowest p-6 md:p-8 lg:col-span-6">
-          <LoanForm inputs={inputs} errors={fieldErrors} onChange={handleInputsChange} />
+          <LoanForm inputs={inputs} errors={fieldErrors} emi={guideEmi} onChange={handleInputsChange} />
 
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <Button
               variant="primary"
               size="lg"
-              className="tracking-widest"
+              className={cn("tracking-widest", !result && "guide-pulse")}
               id="calc-btn"
               onClick={onCalculate}
             >
@@ -398,7 +518,7 @@ export default function Calculator() {
             <RepaymentMode mode={mode} onModeChange={handleModeChange} />
 
             {mode === null && (
-              <div className="mb-6 border-2 border-dashed border-outline-variant bg-surface-container-low p-5">
+              <div className="guide-pulse mb-6 border-2 border-dashed border-outline-variant bg-surface-container-low p-5">
                 <div className="mb-2 flex items-center gap-2">
                   <span className="material-symbols-outlined text-base text-primary-container">
                     lightbulb
@@ -420,6 +540,7 @@ export default function Calculator() {
                 value={extra}
                 baseInstalment={result.baseline.monthly_payment}
                 onChange={handleExtraChange}
+                guide={pullSlider}
               />
             ) : null}
             {mode === "extra" && (

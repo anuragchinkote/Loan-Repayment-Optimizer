@@ -24,6 +24,8 @@ from app.engine.amortization import (
 )
 from app.schemas import (
     ComparisonResponse,
+    EmiRequest,
+    EmiResponse,
     LoanPlanRequest,
     LoanPlanResponse,
     LoanResultResponse,
@@ -125,6 +127,24 @@ def _reject_target_combination(
             status_code=400,
             detail="target_months must not exceed number_of_months",
         )
+
+
+@app.post("/api/v1/loan/emi", response_model=EmiResponse)
+def loan_emi(payload: EmiRequest) -> EmiResponse:
+    """Compute the standard EMI for the stated tenure (guidance endpoint).
+
+    Lets the client surface the EMI before a full plan exists (e.g. when the
+    instalment field is still empty), without reimplementing the formula.
+    """
+    try:
+        emi = calculate_emi(
+            payload.principal,
+            payload.annual_interest_rate,
+            payload.number_of_months,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EmiResponse(emi=str(emi))
 
 
 @app.post("/api/v1/loan/plan", response_model=LoanPlanResponse)

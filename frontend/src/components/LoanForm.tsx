@@ -2,15 +2,25 @@ import type { FieldErrors, LoanInputs } from "../types/loan";
 import { Label } from "./ui/label";
 import { Input } from "./ui/input";
 import { cn } from "../lib/utils";
-import { groupIndian } from "../utils/format";
+import { formatINRFixed, groupIndian } from "../utils/format";
 
 interface LoanFormProps {
   inputs: LoanInputs;
   errors: FieldErrors | null;
+  emi?: string | null;
   onChange: (next: LoanInputs) => void;
 }
 
-export function LoanForm({ inputs, errors, onChange }: LoanFormProps) {
+export function LoanForm({ inputs, errors, emi, onChange }: LoanFormProps) {
+  const emiFormatted = emi != null ? formatINRFixed(emi) : null;
+
+  const instalmentNum = Number(inputs.instalment.replace(/[₹,\s]/g, ""));
+  const belowEmi =
+    emi != null &&
+    emiFormatted != null &&
+    Number.isFinite(instalmentNum) &&
+    instalmentNum > 0 &&
+    instalmentNum < Number(emi);
   const setBalance = (raw: string) => {
     const digits = raw.replace(/[^\d]/g, "");
     onChange({ ...inputs, balance: digits ? groupIndian(digits) : "" });
@@ -143,11 +153,21 @@ export function LoanForm({ inputs, errors, onChange }: LoanFormProps) {
         </div>
 
         <div>
-          <Label htmlFor="loan-instalment">Current required monthly instalment</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="loan-instalment">Current required monthly instalment</Label>
+            {emiFormatted && (
+              <span
+                className="whitespace-nowrap border border-primary-container bg-primary-container/10 px-2 py-0.5 font-label-sm text-label-sm font-bold tabular-nums tracking-wide text-primary"
+                data-testid="emi-chip"
+              >
+                EMI: {emiFormatted}
+              </span>
+            )}
+          </div>
           <div
             className={cn(
               "flex border border-outline-variant focus-within:border-primary-container focus-within:ring-1 focus-within:ring-primary-container",
-              errors?.instalment && "border-error focus-within:border-error focus-within:ring-error",
+              (errors?.instalment || belowEmi) && "border-error focus-within:border-error focus-within:ring-error",
             )}
           >
             <span className="inline-flex items-center border-r border-outline-variant bg-surface-container-low px-4 font-label-md text-label-md font-semibold text-on-surface-variant">
@@ -161,13 +181,27 @@ export function LoanForm({ inputs, errors, onChange }: LoanFormProps) {
               placeholder="e.g. 8,500"
               value={inputs.instalment}
               onChange={(e) => setInstalment(e.target.value)}
-              aria-invalid={Boolean(errors?.instalment)}
-              aria-describedby={errors?.instalment ? "instalment-error" : "instalment-helper"}
+              aria-invalid={Boolean(errors?.instalment) || belowEmi}
+              aria-describedby={
+                errors?.instalment
+                  ? "instalment-error"
+                  : belowEmi
+                    ? "instalment-emi-error"
+                    : "instalment-helper"
+              }
             />
           </div>
           {errors?.instalment ? (
             <p id="instalment-error" role="alert" className="mt-1 font-body-sm text-body-sm text-error">
               {errors.instalment}
+            </p>
+          ) : belowEmi ? (
+            <p
+              id="instalment-emi-error"
+              role="alert"
+              className="mt-1 font-body-sm text-body-sm text-error"
+            >
+              Instalment must be at least the EMI of {emiFormatted} for this loan.
             </p>
           ) : (
             <p id="instalment-helper" className="mt-1 font-body-sm text-body-sm text-on-surface-variant">

@@ -10,7 +10,12 @@ describe("LumpSumEditor", () => {
       <LumpSumEditor lumps={[]} maxMonth={120} onUpsert={vi.fn()} onRemove={vi.fn()} />,
     );
     expect(screen.getByText("No one-time payments added yet.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /add lump sum/i })).toBeInTheDocument();
+
+    const addButton = screen.getByRole("button", { name: /add lump sum/i });
+    expect(addButton).toBeInTheDocument();
+    expect(addButton).toHaveClass("cursor-pointer");
+    expect(addButton).toHaveClass("border");
+    expect(addButton.className).toContain("focus-visible:ring-2");
   });
 
   it("starts a new lump sum with empty fields and placeholders", () => {
