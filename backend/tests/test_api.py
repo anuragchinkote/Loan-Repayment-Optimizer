@@ -32,6 +32,12 @@ def test_health_returns_200():
     assert response.json() == {"status": "ok"}
 
 
+def test_health_supports_head_requests():
+    response = client.head("/health")
+    assert response.status_code == 200
+    assert response.content == b""
+
+
 # ---------------------------------------------------------------------------
 # Standalone EMI guidance
 # ---------------------------------------------------------------------------

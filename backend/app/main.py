@@ -60,9 +60,9 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health() -> dict[str, str]:
-    """Simple liveness probe."""
+    """Simple liveness probe (GET returns the status; HEAD returns 200)."""
     return {"status": "ok"}
 
 
