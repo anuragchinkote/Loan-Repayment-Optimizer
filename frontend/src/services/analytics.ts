@@ -19,13 +19,19 @@ let loaded = false;
 // Pushes straight onto the dataLayer (the same queue the real gtag.js processes),
 // so events survive while the external script is still loading, and they no-op
 // harmlessly on their own.
-function push(...args: unknown[]) {
+//
+// NOTE: gtag.js only processes entries it recognizes as commands. It checks for a
+// real `arguments` object (see `Mb()`: `[object Arguments]` / has `callee`), so we
+// must forward `arguments` untouched. A real Array (e.g. from a rest-param spread)
+// is left in the dataLayer forever and never converted or dispatched.
+function push(..._args: unknown[]) {
   const w = window as AnalyticsWindow;
   w.dataLayer = w.dataLayer || [];
-  w.dataLayer.push(args);
+  w.dataLayer.push(arguments as unknown as unknown[]);
 }
 
 function gtag(...args: unknown[]) {
+  // `arguments` must stay intact for gtag.js to recognize the command.
   push(...args);
 }
 
@@ -42,6 +48,11 @@ export function initAnalytics(): void {
 
   if (loaded) return;
   loaded = true;
+
+  // Standard gtag.js init: the `js` command arms the container's destination tag
+  // (fires the internal `gtm.js` event) before any `config`/`event` calls, and
+  // must be queued before gtag.js processes the dataLayer.
+  gtag("js", new Date());
 
   try {
     const script = document.createElement("script");

@@ -84,6 +84,33 @@ describe("analytics service", () => {
     );
   });
 
+  it("queues the standard js init command before config", async () => {
+    const { trackPageView } = await loadAnalytics("G-TEST");
+    trackPageView("/privacy");
+
+    const entries = dataLayer();
+    const js = entries.find((entry) => entry[0] === "js");
+    expect(js).toBeDefined();
+    expect(typeof js?.[1]).toBe("object");
+    expect(entries.findIndex((entry) => entry[0] === "js")).toBeLessThan(
+      entries.findIndex((entry) => entry[0] === "config"),
+    );
+  });
+
+  it("pushes commands as arguments objects so gtag.js recognizes them", async () => {
+    const { trackPageView, trackEvent } = await loadAnalytics("G-TEST");
+    trackPageView("/");
+    trackEvent("strategy_selected", { strategy: "extra" });
+
+    for (const entry of dataLayer()) {
+      expect(Array.isArray(entry)).toBe(false);
+      expect(
+        Object.prototype.toString.call(entry) === "[object Arguments]" ||
+          Object.prototype.hasOwnProperty.call(entry, "callee"),
+      ).toBe(true);
+    }
+  });
+
   it("stays completely silent when no measurement ID is configured", async () => {
     const { initAnalytics, trackPageView, trackEvent } = await loadAnalytics("");
     const appendSpy = vi.spyOn(document.head, "appendChild");
