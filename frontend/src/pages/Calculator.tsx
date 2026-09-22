@@ -9,6 +9,7 @@ import type {
   RepaymentMode as RepaymentModeOption,
 } from "../types";
 import { ApiError, fetchEmi, fetchLoanPlan, type ApiErrorInfo } from "../services/api";
+import { trackEvent } from "../services/analytics";
 import { formatINR, formatINRFixed } from "../utils/format";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -111,6 +112,7 @@ export default function Calculator() {
   const timerRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hasResultRef = useRef(false);
+  const startedRef = useRef(false);
   const calculateHandlerRef = useRef<() => void>(() => {});
   const scrollTargetRef = useRef<string | null>(null);
   const [scrollTick, setScrollTick] = useState(0);
@@ -298,6 +300,11 @@ export default function Calculator() {
     if (force) setError(null);
     setStatus(hasResultRef.current ? "updating" : "loading");
 
+    if (force && !startedRef.current) {
+      startedRef.current = true;
+      trackEvent("calculator_started");
+    }
+
     try {
       const res = await fetchLoanPlan(built.payload!, ctrl.signal);
       if (seq !== seqRef.current) return;
@@ -309,6 +316,7 @@ export default function Calculator() {
       setError(null);
       setStatus("idle");
       if (force) {
+        trackEvent("baseline_calculated");
         // Recalculate refreshes the whole planner: no inherited strategy values.
         if (firstBaseline) requestScroll("current-plan-card");
         setMode(null);
@@ -320,6 +328,7 @@ export default function Calculator() {
         setBadgeFlash(true);
         window.setTimeout(() => setBadgeFlash(false), 500);
       } else {
+        trackEvent("savings_calculated", { strategy: latest.current.mode ?? "extra" });
         setStrategyActive(hasConfiguredStrategy(built.payload));
         if (scrollTarget) requestScroll(scrollTarget);
       }
@@ -366,6 +375,7 @@ export default function Calculator() {
   const handleModeChange = (next: RepaymentModeOption) => {
     if (next === mode) return;
     setMode(next);
+    trackEvent("strategy_selected", { strategy: next });
     // Selecting a strategy never fabricates a comparison: values stay neutral and
     // results appear only once the user presses "Calculate Savings".
     setStrategyActive(false);
@@ -388,6 +398,8 @@ export default function Calculator() {
   };
 
   const handleLumpUpsert = (lump: LumpSumDraft) => {
+    const isNew = !lumps.some((l) => l.id === lump.id);
+    if (isNew) trackEvent("lump_sum_added");
     setLumps((prev) => {
       const idx = prev.findIndex((l) => l.id === lump.id);
       if (idx >= 0) {

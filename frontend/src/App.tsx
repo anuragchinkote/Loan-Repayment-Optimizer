@@ -1,7 +1,9 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { ScrollManager } from "./components/ScrollManager";
+import { trackPageView } from "./services/analytics";
 import Calculator from "./pages/Calculator";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
@@ -11,11 +13,22 @@ import EducationLoanPrepayment from "./pages/EducationLoanPrepayment";
 import ExtraMonthlyLoanPayment from "./pages/ExtraMonthlyLoanPayment";
 import LumpSumLoanPrepayment from "./pages/LumpSumLoanPrepayment";
 
+// Tracks SPA route changes as GA4 page views. Uses the pathname only — never
+// query values that could embed user-entered loan data.
+function PageViewTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    trackPageView(pathname);
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   return (
     <div className="flex min-h-screen flex-col">
       <ScrollManager />
       <Header />
+      <PageViewTracker />
       <Routes>
         <Route path="/" element={<Calculator />} />
         <Route path="/privacy" element={<Privacy />} />

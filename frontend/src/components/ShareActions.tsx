@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { LoanInputs, LoanPlanResponse, RepaymentMode } from "../types/loan";
 import { buildCalculatorShareText, buildResultsShareText } from "../utils/share";
 import { Button } from "./ui/button";
+import { trackEvent } from "../services/analytics";
 
 interface ShareActionsProps {
   mode: RepaymentMode | null;
@@ -15,7 +16,8 @@ interface ShareActionsProps {
 export function ShareActions({ inputs, result, disabled }: ShareActionsProps) {
   const [notice, setNotice] = useState<string | null>(null);
 
-  const sendToWhatsApp = (message: string, fallbackNotice: string) => {
+  const sendToWhatsApp = (message: string, fallbackNotice: string, kind: "results" | "calculator") => {
+    trackEvent("whatsapp_share_clicked", { share_kind: kind });
     const opened = window.open(
       `https://wa.me/?text=${encodeURIComponent(message)}`,
       "_blank",
@@ -33,6 +35,7 @@ export function ShareActions({ inputs, result, disabled }: ShareActionsProps) {
     sendToWhatsApp(
       buildResultsShareText(inputs, result),
       "Results copied to your clipboard — paste it into any chat.",
+      "results",
     );
   };
 
@@ -40,6 +43,7 @@ export function ShareActions({ inputs, result, disabled }: ShareActionsProps) {
     sendToWhatsApp(
       buildCalculatorShareText(),
       "Calculator link copied to your clipboard.",
+      "calculator",
     );
   };
 
